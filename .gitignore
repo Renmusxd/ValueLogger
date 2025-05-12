@@ -1,0 +1,4 @@
+src/value_logger.egg-info
+**.pyc
+build
+.idea
