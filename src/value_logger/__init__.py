@@ -27,6 +27,7 @@ class ValueLogger:
         if os.environ.get("FAILLOG") is not None:
             self.panic_fail_log = os.environ.get("FAILLOG")
             os.makedirs(os.path.join(self.panic_fail_log, self.directory), exist_ok=True)
+        self.logsucc = bool(os.environ.get("LOGSUCC"))
         self.zfill = 5
 
 
@@ -71,8 +72,11 @@ class ValueLogger:
                 ddif = (value - compare_value)
                 low, high, mean = ddif.min(), ddif.max(), np.absolute(ddif).mean()
                 if self.panic:
-                    raise RuntimeError(f"Comparison for {key} failed: {low:.6f}\t{high:.6f}\t{mean:.6f}")
+                    raise RuntimeError(f"Comparison for {self.directory}/{key} failed: {low:.6f}\t{high:.6f}\t{mean:.6f}")
                 else:
-                    print(f"Comparison for {key} failed: {low:.6f}\t{high:.6f}\t{mean:.6f}", file=sys.stderr)
-
+                    print(f"[-] Comparison for {self.directory}/{key} failed: {low:.6f}\t{high:.6f}\t{mean:.6f}", file=sys.stderr)
+            elif self.logsucc:
+                ddif = (value - compare_value)
+                low, high, mean = ddif.min(), ddif.max(), np.absolute(ddif).mean()
+                print(f"[+] Comparison for {self.directory}/{key} succeeded: {low:.6f}\t{high:.6f}\t{mean:.6f}", file=sys.stderr)
 
