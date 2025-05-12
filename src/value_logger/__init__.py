@@ -63,7 +63,7 @@ class ValueLogger:
             comp_filename = os.path.join(self.compare_from, self.directory, base_filename)
             compare_value = numpy.load(comp_filename)['value']
 
-            are_all_close = np.allclose(value.flatten(), compare_value.flatten())
+            are_all_close = np.allclose(value, compare_value)
             if not are_all_close:
                 if self.panic_fail_log is not None:
                     filename = os.path.join(self.panic_fail_log, self.directory, base_filename)
