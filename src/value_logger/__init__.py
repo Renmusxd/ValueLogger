@@ -52,7 +52,12 @@ class ValueLogger:
         self.overwrite_comp = bool(os.environ.get("OVERWRITECOMP"))
         self.logsucc = bool(os.environ.get("LOGSUCC"))
         self.zfill = int(os.environ.get("LOGZFILL",5))
-
+        self.directory_whitelist = None
+        self.key_whitelist = None
+        if os.environ.get("LOGDIRWHITELIST") is not None:
+            self.directory_whitelist = os.environ.get("LOGDIRWHITELIST").split(",")
+        if os.environ.get("LOGKEYWHITELIST") is not None:
+            self.key_whitelist = os.environ.get("LOGKEYWHITELIST").split(",")
 
     @staticmethod
     def reset():
@@ -83,7 +88,8 @@ class ValueLogger:
             ValueLogger.loggers[directory] = ValueLogger(directory)
         logger = ValueLogger.loggers[directory]
         res = logger.log(key, lambda: value.get())
-        logger.overwrite_with_compare(value, res)
+        if res is not None:
+            logger.overwrite_with_compare(value, res)
 
     def overwrite_with_compare(self, value: cp.ndarray, comp_value: np.ndarray):
         if self.overwrite_comp:
@@ -91,6 +97,11 @@ class ValueLogger:
             assert np.allclose(value.get(), comp_value), "FAILED TO OVERWRITE"
 
     def log(self, key: str, value: Callable[[], np.ndarray]):
+        if self.directory_whitelist is not None and self.directory not in self.directory_whitelist:
+            return None
+        if self.key_whitelist is not None and key not in self.key_whitelist:
+            return None
+
         if self.log_values_to is None and self.compare_from is None:
             return None
 
@@ -113,15 +124,19 @@ class ValueLogger:
                     numpy.savez_compressed(filename, value=value)
 
                 ddif = (value - compare_value)
-                low, high, mean = ddif.min(), ddif.max(), np.absolute(ddif).mean()
+                rel_ddif = ddif / compare_value
+                max_ddif = np.abs(ddif).max()
+                max_rel_ddif = np.abs(rel_ddif).max()
                 if self.panic:
-                    raise RuntimeError(f"Comparison for {self.directory}/{key} failed: {low:.3e}\t{high:.3e}\t{mean:.3e}")
+                    raise RuntimeError(f"Comparison for {self.directory}/{key} failed: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
                 else:
-                    logging.debug(f"[-] Comparison for {self.directory}/{key} failed: {low:.3e}\t{high:.3e}\t{mean:.3e}")
+                    logging.debug(f"[-] Comparison for {self.directory}/{key} failed: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
             elif self.logsucc:
                 ddif = (value - compare_value)
-                low, high, mean = ddif.min(), ddif.max(), np.absolute(ddif).mean()
-                logging.debug(f"[+] Comparison for {self.directory}/{key} succeeded: {low:.3e}\t{high:.3e}\t{mean:.3e}")
+                rel_ddif = ddif / compare_value
+                max_ddif = np.abs(ddif).max()
+                max_rel_ddif = np.abs(rel_ddif).max()
+                logging.debug(f"[+] Comparison for {self.directory}/{key} succeeded: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
             return compare_value
 
         return value
