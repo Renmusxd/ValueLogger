@@ -91,8 +91,24 @@ class ValueLogger:
         if res is not None:
             logger.overwrite_with_compare(value, res)
 
+    @staticmethod
+    def log_cupy_or_None(directory: str, key: str, value: cp.ndarray):
+        """
+        Logs a cupy array. If COMPARE and OVERWRITECOMP are set, overwrites value with data from the saved array.
+        This allows the user to substitute in known correct values during runtime.
+        """
+        if directory not in ValueLogger.loggers:
+            ValueLogger.loggers[directory] = ValueLogger(directory)
+        logger = ValueLogger.loggers[directory]
+        res = logger.log(key, lambda: None if value is None else value.get())
+        if res is not None:
+            logger.overwrite_with_compare(value, res)
+
     def overwrite_with_compare(self, value: cp.ndarray, comp_value: np.ndarray):
         if self.overwrite_comp:
+            if value is None or comp_value is None:
+                logging.warning("Failed to overwrite value with compare value")
+                return
             value[:] = cp.array(comp_value)
             assert np.allclose(value.get(), comp_value), "FAILED TO OVERWRITE"
 
@@ -115,28 +131,46 @@ class ValueLogger:
 
         if self.compare_from is not None:
             comp_filename = os.path.join(self.compare_from, self.directory, base_filename)
-            compare_value = numpy.load(comp_filename)['value']
+            compare_value = numpy.load(comp_filename, allow_pickle=True)['value']
+            if np.array_equal(compare_value, np.array(None)):
+                compare_value = None
 
-            are_all_close = np.allclose(value, compare_value, rtol=self.rtol, atol=self.atol)
-            if not are_all_close:
+            value_is_none = value is None
+            compare_is_none = compare_value is None
+
+            if value_is_none and compare_is_none:
+                if self.logsucc:
+                    logging.debug(f"[+] Comparison for {self.directory}/{key} succeeded")
+                return None
+            elif value_is_none or compare_is_none:
                 if self.panic_fail_log is not None:
                     filename = os.path.join(self.panic_fail_log, self.directory, base_filename)
                     numpy.savez_compressed(filename, value=value)
-
-                ddif = (value - compare_value)
-                rel_ddif = ddif / compare_value
-                max_ddif = np.abs(ddif).max()
-                max_rel_ddif = np.abs(rel_ddif).max()
                 if self.panic:
-                    raise RuntimeError(f"Comparison for {self.directory}/{key} failed: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
+                    raise RuntimeError(f"Comparison for {self.directory}/{key} failed: {value} vs {compare_value}")
                 else:
-                    logging.debug(f"[-] Comparison for {self.directory}/{key} failed: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
-            elif self.logsucc:
-                ddif = (value - compare_value)
-                rel_ddif = ddif / compare_value
-                max_ddif = np.abs(ddif).max()
-                max_rel_ddif = np.abs(rel_ddif).max()
-                logging.debug(f"[+] Comparison for {self.directory}/{key} succeeded: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
-            return compare_value
+                    logging.debug(f"[-] Comparison for {self.directory}/{key} failed: {value} vs {compare_value}")
+                return compare_value
+            else:
+                are_all_close = np.allclose(value, compare_value, rtol=self.rtol, atol=self.atol)
+                if not are_all_close:
+                    if self.panic_fail_log is not None:
+                        filename = os.path.join(self.panic_fail_log, self.directory, base_filename)
+                        numpy.savez_compressed(filename, value=value)
 
+                    ddif = (value - compare_value)
+                    rel_ddif = ddif / compare_value
+                    max_ddif = np.abs(ddif).max()
+                    max_rel_ddif = np.abs(rel_ddif).max()
+                    if self.panic:
+                        raise RuntimeError(f"Comparison for {self.directory}/{key} failed: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
+                    else:
+                        logging.debug(f"[-] Comparison for {self.directory}/{key} failed: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
+                elif self.logsucc:
+                    ddif = (value - compare_value)
+                    rel_ddif = ddif / compare_value
+                    max_ddif = np.abs(ddif).max()
+                    max_rel_ddif = np.abs(rel_ddif).max()
+                    logging.debug(f"[+] Comparison for {self.directory}/{key} succeeded: {max_ddif:.3e}\trel: {max_rel_ddif:.3e}")
+                return compare_value
         return value
